@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TDengine on CesiumJS</title>
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" />
+  <style>
+    html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    #bar, #card {
+      position: absolute; z-index: 2; color: #f8fafc;
+      background: rgba(15, 23, 42, 0.88); font: 13px/1.4 ui-sans-serif, sans-serif;
+    }
+    #bar { left: 12px; bottom: 12px; padding: 8px 12px; border-radius: 8px; }
+    #card { right: 12px; top: 12px; width: 260px; padding: 12px; border-radius: 8px; display: none; }
+    #card h2 { margin: 0 0 8px; font-size: 14px; }
+    #card dl { margin: 0; }
+    #card dt { color: #94a3b8; }
+    #card dd { margin: 0 0 6px; }
+    #err { color: #fda4af; }
+  </style>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+<div id="bar">Connecting to TDengine…</div>
+<aside id="card"></aside>
+<script>
+  const viewer = new Cesium.Viewer("cesiumContainer", {
+    baseLayer: false,
+    baseLayerPicker: false,
+    animation: false,
+    timeline: false,
+    geocoder: false,
+  });
+  viewer.imageryLayers.addImageryProvider(new Cesium.ArcGisMapServerImageryProvider({
+    url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
+  }));
+
+  const STATUS_COLOR = {
+    OK: Cesium.Color.fromCssColorString("#34d399"),
+    ALARM: Cesium.Color.fromCssColorString("#fb7185"),
+    WARN: Cesium.Color.fromCssColorString("#fbbf24"),
+  };
+  const bar = document.getElementById("bar");
+  const card = document.getElementById("card");
+
+  function paint(asset) {
+    const position = Cesium.Cartesian3.fromDegrees(asset.lon, asset.lat, asset.height || 0);
+    const color = STATUS_COLOR[asset.status] || Cesium.Color.fromCssColorString("#e2e8f0");
+    const extra = asset.reading != null ? asset.reading : asset.power != null ? asset.power : asset.speed;
+    const text = extra == null ? asset.id : asset.id + "  " + extra;
+    let entity = viewer.entities.getById(asset.id);
+    if (!entity) {
+      entity = viewer.entities.add({
+        id: asset.id,
+        position,
+        point: {
+          pixelSize: 14,
+          color,
+          outlineWidth: 1,
+          outlineColor: Cesium.Color.BLACK,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: {
+          text,
+          font: "14px sans-serif",
+          pixelOffset: new Cesium.Cartesian2(0, -18),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+    } else {
+      entity.position = position;
+      entity.point.color = color;
+      entity.label.text = text;
+    }
+    entity.properties = asset;
+  }
+
+  function show(asset) {
+    const rows = Object.entries(asset)
+      .map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`)
+      .join("");
+    card.innerHTML = `<h2>${asset.id}</h2><dl>${rows}</dl>`;
+    card.style.display = "block";
+  }
+
+  viewer.selectedEntityChanged.addEventListener((entity) => {
+    if (entity && entity.properties) show(entity.properties.getValue(Cesium.JulianDate.now()));
+  });
+
+  async function refresh(fly) {
+    const response = await fetch("/api/assets", { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok || body.error) {
+      bar.innerHTML = `<span id="err">${body.error || response.status}</span>`;
+      return;
+    }
+    (body.assets || []).forEach(paint);
+    bar.textContent = `${body.assets.length} asset${body.assets.length === 1 ? "" : "s"} from TDengine`;
+    if (fly && viewer.entities.values.length) viewer.flyTo(viewer.entities);
+  }
+
+  refresh(true)
+    .catch((err) => { bar.innerHTML = `<span id="err">${err.message}</span>`; })
+    .finally(() => setInterval(() => refresh(false).catch(() => {}), 5000));
+</script>
+</body>
+</html>
