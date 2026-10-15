@@ -4,6 +4,8 @@ This package places TDengine assets on a CesiumJS globe. A small service reads t
 
 Use it for a fixed site, a moving fleet, or assets that already exist as elements in TDengine IDMP. The page stays the same. The query changes.
 
+The scenarios in this package are examples. Copy a directory under `scenarios/`, point it at your own tables, and run that name to build your own Cesium scene on the same service.
+
 The full guide is in [docs/integrating-cesium.md](docs/integrating-cesium.md).
 
 ## Requirements

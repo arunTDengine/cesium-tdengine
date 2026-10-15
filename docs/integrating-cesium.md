@@ -4,6 +4,8 @@ CesiumJS draws a globe. TDengine stores the time series for the assets on that g
 
 A wind farm, a fleet, a pipeline, or a set of fixed instruments uses the same service. Change the query to match the schema you already have.
 
+`scenarios/sample` and `scenarios/fleet` are examples. Copy one of those directories, point `seed.sql` and `query.sql` at your own tables, and pass the new directory name when you start the service. The page, the service, and the JSON fields stay the same, so that copy is the start of your own Cesium scene.
+
 Credentials remain on the service. The browser receives coordinates and measurements only.
 
 ## Requirements
