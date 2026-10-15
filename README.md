@@ -2,6 +2,12 @@
 
 Clone this repository, point it at TDengine, and open the globe. The same package works for a wind farm, a vehicle fleet, a plant, or any other scene. You change one SQL file.
 
+```bash
+git clone https://origin.cursor.com/arun-arulraj/cesium-tdengine.git
+cd cesium-tdengine
+python3 server.py
+```
+
 The browser never sees the database password.
 
 ## Run

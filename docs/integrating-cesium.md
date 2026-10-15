@@ -19,6 +19,8 @@ taosAdapter -> TDengine
 Python 3.9 or later. TDengine 3.x with taosAdapter. No extra Python packages.
 
 ```bash
+git clone https://origin.cursor.com/arun-arulraj/cesium-tdengine.git
+cd cesium-tdengine
 python3 server.py
 ```
 
