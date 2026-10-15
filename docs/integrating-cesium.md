@@ -30,11 +30,13 @@ The service reads its connection from the process environment.
 
 `.env.example` records the same names. Export the variables before starting the process. The SQL text is sent as the raw request body with HTTP Basic authentication. taosAdapter returns column names in `column_meta`. Alias expressions in the query so the names match the fields below.
 
-## Start
+## Start a scenario
 
-From the package directory, start `server.py` with Python. The process prints the page address. Open that address in a browser. Opening the HTML file directly leaves the globe without data, because the page requests `/api/assets` from the service.
+From the package directory, run `run.py` with Python. That command loads a scenario, starts the service, and opens the page. With no argument the scenario is `scenarios/sample`, which creates database `cesium_sample` and three fixed assets. A second argument is the name of another directory under `scenarios/`. `scenarios/fleet` is a moving-asset scenario. A scenario directory contains `seed.sql`, which creates the tables and writes the current values, and `query.sql`, which the page reads.
 
-While `query.sql` still contains the sample marker and `geo.assets` is absent, the first request creates database `geo` and three sample assets. After you replace the query, remove that marker so a missing table is reported instead of creating the sample.
+Set `TAOS_URL` to the taosAdapter address for your installation before running the command. When that variable is unset, a `.env` file in the package directory supplies it. The standard address is `http://localhost:6041/rest/sql`. If the bind port is already taken, the service uses the next free port and prints the address it opened.
+
+`server.py` serves whatever `query.sql` is in the package root and does not load a scenario. Opening the HTML file directly leaves the globe without data, because the page requests `/api/assets` from the service.
 
 ## What the page requires
 

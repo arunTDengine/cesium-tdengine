@@ -24,17 +24,46 @@ SEED_FILE = ROOT / "seed.sql"
 TRACK_FILE = ROOT / "track.sql"
 SAMPLE_MARK = "cesium-tdengine:sample"
 
-TAOS_URL = os.environ.get("TAOS_URL", "http://localhost:6041/rest/sql")
-TAOS_USER = os.environ.get("TAOS_USER", "root")
-TAOS_PASSWORD = os.environ.get("TAOS_PASSWORD", "taosdata")
-HOST = os.environ.get("HOST", "127.0.0.1")
-PORT = int(os.environ.get("PORT", "8095"))
 CACHE_SECONDS = float(os.environ.get("CACHE_SECONDS", "4"))
 
 _lock = threading.Lock()
 _cache = {"at": 0.0, "body": None}
 _seed_lock = threading.Lock()
 _seeded = False
+_env_loaded = False
+_httpd: ThreadingHTTPServer | None = None
+
+
+def load_env() -> None:
+    """Apply a .env file when a variable is not already set."""
+    global _env_loaded
+    if _env_loaded:
+        return
+    _env_loaded = True
+    path = ROOT / ".env"
+    if not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        text = line.strip()
+        if not text or text.startswith("#") or "=" not in text:
+            continue
+        key, value = text.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+
+
+def connection() -> tuple[str, str, str]:
+    load_env()
+    url = os.environ.get("TAOS_URL", "http://localhost:6041/rest/sql")
+    user = os.environ.get("TAOS_USER", "root")
+    password = os.environ.get("TAOS_PASSWORD", "taosdata")
+    return url, user, password
+
+
+def bind_address() -> tuple[str, int]:
+    load_env()
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "8095"))
+    return host, port
 
 
 def load_sql(path: Path) -> str:
@@ -65,9 +94,10 @@ def statements(path: Path) -> list[str]:
 
 
 def query(sql: str) -> list[dict]:
-    token = base64.b64encode(f"{TAOS_USER}:{TAOS_PASSWORD}".encode()).decode()
+    url, user, password = connection()
+    token = base64.b64encode(f"{user}:{password}".encode()).decode()
     request = Request(
-        TAOS_URL,
+        url,
         data=sql.encode(),
         headers={"Authorization": f"Basic {token}"},
         method="POST",
@@ -79,7 +109,7 @@ def query(sql: str) -> list[dict]:
         detail = exc.read().decode("utf-8", "replace")
         raise RuntimeError(detail or f"HTTP {exc.code}") from exc
     except URLError as exc:
-        raise RuntimeError(f"cannot reach {TAOS_URL}: {exc.reason}") from exc
+        raise RuntimeError(f"cannot reach {url}: {exc.reason}") from exc
     if body.get("code") != 0:
         raise RuntimeError(body.get("desc") or json.dumps(body))
     names = [column[0] for column in body.get("column_meta") or []]
@@ -176,11 +206,41 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, "not found", "text/plain; charset=utf-8")
 
 
-def main() -> None:
-    print(f"TDengine  {TAOS_URL}", flush=True)
+def start() -> str:
+    """Bind the page and return its address. The port moves forward if busy."""
+    global _httpd
+    if _httpd is not None:
+        host, port = _httpd.server_address[:2]
+        return f"http://{host}:{port}/"
+    host, port = bind_address()
+    last_error: OSError | None = None
+    for candidate in range(port, port + 20):
+        try:
+            _httpd = ThreadingHTTPServer((host, candidate), Handler)
+            break
+        except OSError as exc:
+            last_error = exc
+    if _httpd is None:
+        raise SystemExit(f"Could not bind {host}:{port}: {last_error}")
+    bound_host, bound_port = _httpd.server_address[:2]
+    shown = "127.0.0.1" if bound_host in ("0.0.0.0", "::") else bound_host
+    url, _, _ = connection()
+    print(f"TDengine  {url}", flush=True)
     print(f"Query     {QUERY_FILE}", flush=True)
-    print(f"Open      http://{HOST}:{PORT}/", flush=True)
-    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    return f"http://{shown}:{bound_port}/"
+
+
+def serve_forever() -> None:
+    if _httpd is None:
+        start()
+    assert _httpd is not None
+    _httpd.serve_forever()
+
+
+def main() -> None:
+    url = start()
+    print(f"Open      {url}", flush=True)
+    serve_forever()
 
 
 if __name__ == "__main__":

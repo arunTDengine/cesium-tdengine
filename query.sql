@@ -11,5 +11,5 @@ SELECT
   longitude     AS lon,
   latitude      AS lat,
   height
-FROM geo.assets
+FROM cesium_sample.assets
 GROUP BY tbname

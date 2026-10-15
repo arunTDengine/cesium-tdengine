@@ -26,11 +26,13 @@ Set these variables in the environment of the service. The defaults match taosAd
 
 `.env.example` lists the same names. The service reads the process environment.
 
-## Start
+## Start a scenario
 
-From this directory, start `server.py` with Python 3.9 or later. The process prints the page address. Open that address in a browser.
+`run.py` is the one command. It loads a scenario into TDengine, starts the service, and opens the page. With no argument it loads `scenarios/sample`: three fixed assets in database `cesium_sample`. `python3 run.py fleet` loads the moving-asset scenario instead. Each directory under `scenarios/` is a scenario, with `seed.sql` and `query.sql`.
 
-On the first request, if `query.sql` is still the included sample and `geo.assets` does not exist, the service creates database `geo` and three sample assets.
+Set `TAOS_URL` when taosAdapter is not at `http://localhost:6041/rest/sql`. A file named `.env` in this directory is applied for any variable that is not already set. If the chosen port is in use, the service takes the next free port and prints that address.
+
+`server.py` starts the page against the current `query.sql` and does not load a scenario.
 
 ## Your tables
 
