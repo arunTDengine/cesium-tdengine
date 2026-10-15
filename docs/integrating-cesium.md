@@ -1,89 +1,95 @@
 # Connecting CesiumJS
 
-CesiumJS draws the globe. TDengine stores the time series. There is no plugin. This package is the connection: a short Python service reads taosAdapter and the page draws one entity per asset.
+CesiumJS draws a globe. TDengine stores the time series for the assets on that globe. This package is the connection between them. The service queries taosAdapter and returns JSON. The page creates one Cesium entity per asset and refreshes it in place.
 
-It is not tied to one plant or one schema. A wind farm, a fleet, a pipeline, and a set of fixed sensors all use the same service. You change `query.sql`.
+A wind farm, a fleet, a pipeline, or a set of fixed instruments uses the same service. Change the query to match the schema you already have.
 
-```text
-CesiumJS page
-    GET /api/assets
-        |
-server.py          password stays here
-    POST /rest/sql
-        |
-taosAdapter -> TDengine
-```
+Credentials remain on the service. The browser receives coordinates and measurements only.
 
-## Get started
+## Requirements
 
-Python 3.9 or later. TDengine 3.x with taosAdapter. No extra Python packages.
+Prepare the following:
 
-```bash
-git clone https://origin.cursor.com/arun-arulraj/cesium-tdengine.git
-cd cesium-tdengine
-python3 server.py
-```
+1. TDengine 3.x is installed and running. See [Get Started](https://docs.tdengine.com/get-started/).
+2. taosAdapter is running, and the machine that hosts this service can reach it. The REST interface is `http://<host>:6041/rest/sql` on a standard installation. Use the host and port where taosAdapter listens in your environment.
+3. A TDengine user and password. The installation defaults are `root` and `taosdata`.
+4. Python 3.9 or later. The service uses the standard library.
+5. A browser that can load CesiumJS 1.114 from the Cesium CDN. The included page supplies its own imagery, so a Cesium ion token is optional.
 
-Open http://127.0.0.1:8095/
+## Configure the service
 
-Defaults are `http://localhost:6041/rest/sql`, user `root`, password `taosdata`. If `query.sql` is still the sample and the table is missing, the first request creates database `geo` and three assets so the globe is not empty.
+The service reads its connection from the process environment.
 
-```bash
-export TAOS_URL=http://localhost:6041/rest/sql
-export TAOS_USER=root
-export TAOS_PASSWORD=taosdata
-python3 server.py
-```
+| Variable | Default | Purpose |
+|---|---|---|
+| `TAOS_URL` | `http://localhost:6041/rest/sql` | taosAdapter REST address. |
+| `TAOS_USER` | `root` | TDengine user. |
+| `TAOS_PASSWORD` | `taosdata` | TDengine password. |
+| `HOST` | `127.0.0.1` | Bind address for the page. |
+| `PORT` | `8095` | Bind port for the page. |
 
-## Point it at your tables
+`.env.example` records the same names. Export the variables before starting the process. The SQL text is sent as the raw request body with HTTP Basic authentication. taosAdapter returns column names in `column_meta`. Alias expressions in the query so the names match the fields below.
 
-`query.sql` must return `id`, `lon`, `lat`, and `height`. Other columns are optional. They show up when an operator clicks a point.
+## Start
 
-Fixed assets keep longitude and latitude in tags. One child table is one entity:
+From the package directory, start `server.py` with Python. The process prints the page address. Open that address in a browser. Opening the HTML file directly leaves the globe without data, because the page requests `/api/assets` from the service.
 
-```sql
-SELECT LAST(ts) AS ts, LAST(active_power) AS power, LAST(status) AS status,
-       turbine_id AS id, longitude AS lon, latitude AS lat, 80 AS height
-FROM wind.turbines
-GROUP BY tbname
-```
+While `query.sql` still contains the sample marker and `geo.assets` is absent, the first request creates database `geo` and three sample assets. After you replace the query, remove that marker so a missing table is reported instead of creating the sample.
 
-Moving assets keep longitude and latitude in columns:
+## What the page requires
 
-```sql
-SELECT LAST(ts) AS ts, LAST(longitude) AS lon, LAST(latitude) AS lat,
-       LAST(height) AS height, LAST(speed) AS speed, vehicle_id AS id
-FROM fleet.positions
-GROUP BY tbname
-```
+`GET /api/assets` returns an object with `source` and `assets`. Each asset uses these fields.
 
-Those two queries are also in `examples/`. Copy one over `query.sql` and rename the columns. Remove the line `-- cesium-tdengine:sample` so the sample seed does not run against your server.
+| Field | Required | Meaning |
+|---|---|---|
+| `id` | Yes | Stable asset identifier. The page uses it as the Cesium entity id, so later refreshes update the same object. |
+| `lon` | Yes | Longitude, decimal degrees. Cesium takes longitude first. |
+| `lat` | Yes | Latitude, decimal degrees. |
+| `height` | No | Meters above the ellipsoid. A missing value is drawn at 0. |
+| Any other column | No | Shown when the asset is selected. `status` colors the point for `OK`, `WARN`, and `ALARM`. |
 
-Alias every `LAST()` you want in the JSON. `LAST(longitude)` without `AS lon` comes back as `last(longitude)`, and the page ignores it.
+Rows with a null longitude or latitude are omitted. The service caches the JSON response for a few seconds so each open browser does not query TDengine on its own timer. The page refreshes about every five seconds.
 
-Cesium expects longitude, then latitude, then height in meters.
+## Map your tables
+
+Edit `query.sql`. Keep the aliases `id`, `lon`, `lat`, and `height`.
+
+| Scene | Store longitude and latitude | Query |
+|---|---|---|
+| Site, turbine, building, well, or meter | Tags on the supertable. The coordinate is not a new sample on every insert. | Latest measurements with `LAST`, grouped by child table. One child table is one entity. |
+| Vehicle, aircraft, vessel, or person | Columns beside the timestamp. The coordinate is the time series. | Latest longitude and latitude for the current position. |
+
+`examples/fixed-assets.sql` and `examples/moving-fleet.sql` are those two forms. Copy the relevant file over `query.sql` and rename the database, table, and columns.
+
+Group by `tbname` when each child table is one asset. Alias every `LAST` expression. Without an alias, `LAST(longitude)` is returned as `last(longitude)`, and the page does not treat that key as a coordinate.
 
 ## Tracks
 
-Copy `examples/track.sql` to `track.sql` when an asset moves and you want the path, not only the latest point. `{id}` is filled from `GET /api/track?id=VAN-4`. Keep `INTERVAL` in that query so a long history stays small.
+The asset feed is the current position. A path is a second query, downsampled so a long history stays small.
+
+Copy `examples/track.sql` to `track.sql` in the package directory. Set the table, the time window, and the interval for your data. The token `{id}` is replaced with the asset id from `GET /api/track`. The included page draws the current position. A page that draws the path reads that second feed and builds a sampled position from `ts`, `lon`, `lat`, and `height`.
 
 ## TDengine IDMP
 
-If the assets are already IDMP elements, leave the page as it is and read attributes in the service instead of SQL.
+When the assets are already elements in TDengine IDMP, keep the page and read attribute values in the service. IDMP attributes are bound to TDengine columns, so the measurements still come from TDengine. The service then holds an IDMP token instead of a SQL statement.
 
-1. Log in with `POST /api/v1/users/login` and send the token on later calls.
-2. List the children of the parent element.
-3. Cache attribute ids.
-4. Read current values and return the same JSON: `id`, `lon`, `lat`, `height`, plus measurements.
+1. Authenticate with `POST /api/v1/users/login` and send that token on later calls.
+2. List the child elements that belong on the globe.
+3. Cache the attribute identifiers for each element. They change rarely.
+4. Read the current values and return the same asset fields: `id`, `lon`, `lat`, `height`, and the measurements to display.
 
-Coordinates come from the element location or from a lookup in the service. Embed the page in an IDMP dashboard with an iframe pointed at `http://127.0.0.1:8095/`. See [Embedding Panels and Dashboards](https://idmpdocs.tdengine.com/integrating-with-other-systems/).
+Take coordinates from the element location, or from a lookup the service owns. Cache the assembled JSON for a few seconds, as the SQL path does.
+
+The page can be placed in an IDMP dashboard as an iframe. The iframe address is the service address. See [Embedding Panels and Dashboards](https://idmpdocs.tdengine.com/integrating-with-other-systems/).
 
 ## Troubleshooting
 
-| What you see | What it usually is |
+| What you see | What to check |
 |---|---|
-| Connection error on the page | taosAdapter is not at `TAOS_URL`, or the user and password are wrong. |
-| Empty asset list | No child tables, or latitude and longitude are null. |
-| Blank globe | The HTML file was opened directly. Use the URL printed by `server.py`. |
-| Point in the wrong place | `lon` and `lat` are reversed. |
-| Duplicate or jumping points | `id` is not stable across polls. Use the asset id, not the timestamp. |
+| The page cannot reach taosAdapter | `TAOS_URL` is the host and port where taosAdapter is listening, and `TAOS_USER` and `TAOS_PASSWORD` match that installation. |
+| The asset list is empty | The query returns rows, and longitude and latitude are present. Null coordinates are dropped. |
+| The globe has no imagery or no points | The address opened in the browser is the one printed by the service. |
+| A point is far from the asset | `lon` and `lat` are in the correct order. Cesium expects longitude first. |
+| Points duplicate or jump | `id` is stable across refreshes. Use the asset identifier, not the timestamp. |
+| A new value is slow to appear | The service cache is a few seconds, then the page refreshes. |
+| TDengine load grows with every viewer | Queries stay in this service. The cache is what keeps one result shared. |
