@@ -2,6 +2,8 @@
 
 This package places TDengine assets on a CesiumJS globe. A small service reads taosAdapter and serves one JSON object per asset. The page draws one entity per object. Database credentials stay with the service.
 
+The package is published at [github.com/arunTDengine/cesium-tdengine](https://github.com/arunTDengine/cesium-tdengine).
+
 Use it for a fixed site, a moving fleet, or assets that already exist as elements in TDengine IDMP. The page stays the same. The query changes.
 
 The scenarios in this package are examples. Copy a directory under `scenarios/`, point it at your own tables, and run that name to build your own Cesium scene on the same service.
